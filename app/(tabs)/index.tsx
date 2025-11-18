@@ -1,98 +1,213 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+/**
+ * @file app/(tabs)/index.tsx
+ * @description Esta es la pantalla de inicio de sesión de la aplicación.
+ * Permite a los usuarios ingresar su nombre de usuario y contraseña.
+ * Valida las credenciales y, si son correctas, redirige al usuario a la pantalla de exploración.
+ * Se conecta con:
+ *  - `config/credentials.js`: para validar las credenciales del usuario.
+ *  - `app/(tabs)/explore.tsx`: a donde redirige si el inicio de sesión es exitoso.
+ */
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import React, { useState } from 'react';
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { validateCredentials } from '../../config/credentials';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const handleLogin = () => {
+    // Eliminar espacios al inicio y final de usuario y contraseña
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+    
+    const user = validateCredentials(cleanUsername, cleanPassword);
+    
+    if (user) {
+      // Navigate to explore tab after successful login
+      router.push('/explore');
+    } else {
+      Alert.alert('Error', 'Usuario o contraseña incorrectos');
+    }
+  };
+
+  return (
+    <LinearGradient
+      colors={['#4c669f', '#3b5998', '#192f6a']}
+      style={styles.container}
+    >
+      <View style={styles.logoContainer}>
+        <View style={styles.logoCircle}>
+          <Text style={styles.logoIcon}>🐔</Text>
+        </View>
+        <Text style={styles.title}>AviTrack</Text>
+        <Text style={styles.subtitle}>Sistema de Gestión Avícola</Text>
+      </View>
+      
+      <View style={styles.formContainer}>
+        <View style={styles.inputWrapper}>
+          <Text style={styles.inputIcon}>👤</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Nombre de usuario"
+            placeholderTextColor="#999"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
+          />
+        </View>
+        
+        <View style={styles.inputWrapper}>
+          <Text style={styles.inputIcon}>🔒</Text>
+          <View style={styles.passwordContainer}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Contraseña"
+              placeholderTextColor="#999"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity 
+              style={styles.eyeButton}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        <TouchableOpacity 
+          style={styles.button} 
+          onPress={handleLogin}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#34C759', '#2ecc71']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.buttonGradient}
+          >
+            <Text style={styles.buttonText}>Ingresar</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </LinearGradient>
   );
 }
 
+
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 50,
+  },
+  logoCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  logoIcon: {
+    fontSize: 60,
+  },
+  title: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
+  },
+  formContainer: {
+    width: '100%',
+  },
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 15,
+    marginBottom: 15,
+    paddingLeft: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  inputIcon: {
+    fontSize: 24,
+    marginRight: 10,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  input: {
+    flex: 1,
+    height: 56,
+    fontSize: 16,
+    color: '#333',
+  },
+  passwordContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    height: 56,
+    fontSize: 16,
+    color: '#333',
+  },
+  eyeButton: {
+    padding: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeIcon: {
+    fontSize: 24,
+  },
+  button: {
+    width: '100%',
+    height: 56,
+    borderRadius: 15,
+    marginTop: 10,
+    overflow: 'hidden',
+    shadowColor: '#34C759',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  buttonGradient: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });

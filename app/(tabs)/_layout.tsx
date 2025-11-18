@@ -1,3 +1,18 @@
+/**
+ * @file app/(tabs)/_layout.tsx
+ * @description Este archivo define el layout para la navegación por pestañas de la aplicación.
+ * Utiliza `Tabs` de `expo-router` para crear las pestañas.
+ * Actualmente, la barra de pestañas está oculta (`tabBarStyle: { display: 'none' }`).
+ * Define las pantallas que se mostrarán en las pestañas.
+ * Se conecta con:
+ *  - `components/haptic-tab.tsx`: para el componente de pestaña con retroalimentación háptica.
+ *  - `components/ui/icon-symbol.tsx`: para mostrar los iconos de las pestañas.
+ *  - `constants/theme.ts`: para los colores.
+ *  - `hooks/use-color-scheme.ts`: para adaptar el tema (claro/oscuro).
+ *  - `app/(tabs)/index.tsx`: la pantalla de inicio.
+ *  - `app/(tabs)/explore.tsx`: la pantalla de exploración.
+ */
+
 import { Tabs } from 'expo-router';
 import React from 'react';
 
@@ -15,6 +30,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarStyle: { display: 'none' }, // Ocultar la barra de tabs
       }}>
       <Tabs.Screen
         name="index"
