@@ -46,6 +46,8 @@ export default function TabTwoScreen() {
     { id: 6, title: 'Sacrificio', icon: '⚠️', ruta: '/registrar-evento', params: { tipo: 'sacrificio' } },
     { id: 7, title: 'Enfermedades', icon: '🏥', ruta: '/enfermedades' },
     { id: 9, title: 'Avisos de Incubación', icon: '🔔', ruta: '/avisos-incubacion' },
+    { id: 10, title: 'Respaldo en Drive', icon: '💾', ruta: '/configuracion-backup' },
+    { id: 11, title: 'Ver Copias de Seguridad', icon: '📦', ruta: '/ver-backups' },
   ];
 
   const handleMenuPress = (option: any) => {

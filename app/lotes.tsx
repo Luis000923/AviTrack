@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  TouchableOpacity, 
-  StyleSheet, 
-  Alert,
-  Modal,
-  TextInput,
-  ScrollView,
-  Platform
-} from 'react-native';
-import { router } from 'expo-router';
+import { actualizarLote, eliminarLote, guardarLote, Lote, obtenerLotes } from '@/services/storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { obtenerLotes, actualizarLote, Lote, guardarLote, eliminarLote } from '@/services/storage';
+import { router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 export default function LotesScreen() {
   const [lotes, setLotes] = useState<Lote[]>([]);
@@ -87,10 +88,12 @@ export default function LotesScreen() {
 
   const cargarLotes = async () => {
     try {
+      setLoading(true);
       const lotesData = await obtenerLotes();
       setLotes(lotesData);
     } catch (error) {
       Alert.alert('Error', 'No se pudieron cargar los lotes');
+      console.error('Error al cargar lotes:', error);
     } finally {
       setLoading(false);
     }
@@ -123,15 +126,17 @@ export default function LotesScreen() {
         cantidadHembras: hembras,
       };
 
-      await guardarLote(nuevoLote);
+      console.log('🟢 [APP] Intentando guardar lote desde app:', nuevoLote);
+      const loteGuardado = await guardarLote(nuevoLote);
+      console.log('🟢 [APP] Lote guardado correctamente:', loteGuardado);
       
       limpiarFormulario();
       setModalVisible(false);
       await cargarLotes();
       
     } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar el lote');
-      console.error(error);
+      console.error('🔴 [APP] Error al guardar lote:', error);
+      Alert.alert('Error', 'No se pudo guardar el lote: ' + (error as Error).message);
     }
   };
 
@@ -427,15 +432,22 @@ export default function LotesScreen() {
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Nuevo Lote</Text>
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Text style={styles.closeButton}>✕</Text>
-                </TouchableOpacity>
-              </View>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Nuevo Lote</Text>
+                  <TouchableOpacity onPress={() => setModalVisible(false)}>
+                    <Text style={styles.closeButton}>✕</Text>
+                  </TouchableOpacity>
+                </View>
 
               <Text style={styles.label}>Cantidad Total *</Text>
               <TextInput
@@ -496,6 +508,7 @@ export default function LotesScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal para editar lote existente */}
@@ -505,19 +518,26 @@ export default function LotesScreen() {
         visible={editModalVisible}
         onRequestClose={() => setEditModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Editar Lote</Text>
-                <TouchableOpacity onPress={() => {
-                  setEditModalVisible(false);
-                  setLoteEditando(null);
-                  limpiarFormulario();
-                }}>
-                  <Text style={styles.closeButton}>✕</Text>
-                </TouchableOpacity>
-              </View>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <ScrollView 
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Editar Lote</Text>
+                  <TouchableOpacity onPress={() => {
+                    setEditModalVisible(false);
+                    setLoteEditando(null);
+                    limpiarFormulario();
+                  }}>
+                    <Text style={styles.closeButton}>✕</Text>
+                  </TouchableOpacity>
+                </View>
 
               <Text style={styles.label}>Nombre del Lote *</Text>
               <TextInput
@@ -648,6 +668,7 @@ export default function LotesScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal para editar colores individuales */}
@@ -657,16 +678,24 @@ export default function LotesScreen() {
         visible={modalColoresVisible}
         onRequestClose={() => setModalColoresVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Colores Individuales</Text>
-              <TouchableOpacity onPress={() => setModalColoresVisible(false)}>
-                <Text style={styles.closeButton}>✕</Text>
-              </TouchableOpacity>
-            </View>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Colores Individuales</Text>
+                <TouchableOpacity onPress={() => setModalColoresVisible(false)}>
+                  <Text style={styles.closeButton}>✕</Text>
+                </TouchableOpacity>
+              </View>
 
-            <ScrollView style={{ maxHeight: 500 }}>
+              <ScrollView 
+                style={{ maxHeight: 500 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
               {pollosIndividuales.map((pollo, index) => (
                 <View key={pollo.id} style={styles.polloItem}>
                   <View style={styles.polloInfo}>
@@ -703,20 +732,19 @@ export default function LotesScreen() {
               ))}
             </ScrollView>
 
-            <TouchableOpacity 
-              style={styles.saveButton} 
-              onPress={() => setModalColoresVisible(false)}
-            >
-              <Text style={styles.saveButtonText}>Guardar Colores</Text>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.saveButton} 
+                onPress={() => setModalColoresVisible(false)}
+              >
+                <Text style={styles.saveButtonText}>Guardar Colores</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
-}
-
-const styles = StyleSheet.create({
+}const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',

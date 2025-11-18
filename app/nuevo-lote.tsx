@@ -1,15 +1,17 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  ScrollView, 
-  Alert 
-} from 'react-native';
-import { router } from 'expo-router';
 import { guardarLote } from '@/services/storage';
+import { router } from 'expo-router';
+import React, { useState } from 'react';
+import {
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
 export default function NuevoLoteScreen() {
   const [fechaNacimiento, setFechaNacimiento] = useState('');
@@ -53,14 +55,23 @@ export default function NuevoLoteScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Nuevo Lote</Text>
-      </View>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <ScrollView 
+        style={styles.scrollView}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Nuevo Lote</Text>
+        </View>
 
-      <View style={styles.form}>
+        <View style={styles.form}>
         <Text style={styles.label}>Fecha de Nacimiento *</Text>
         <TextInput
           style={styles.input}
@@ -149,7 +160,8 @@ export default function NuevoLoteScreen() {
           <Text style={styles.saveButtonText}>Guardar Lote</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -157,6 +169,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
     backgroundColor: '#007AFF',

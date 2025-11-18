@@ -1,4 +1,17 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+    addDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    updateDoc,
+    where,
+    writeBatch
+} from 'firebase/firestore';
+import { db } from '../api/firebase';
+import { autoBackupIfEnabled } from './googleDriveBackup';
 
 // Tipos
 export interface PolloIndividual {
@@ -82,47 +95,103 @@ export interface Notificacion {
   incubacionId?: string;
 }
 
-// Claves de almacenamiento
-const KEYS = {
-  LOTES: '@lotes',
-  SANIDAD: '@sanidad',
-  INCUBACIONES: '@incubaciones',
-  NOTIFICACIONES: '@notificaciones',
+// Colecciones de Firestore
+const COLLECTIONS = {
+  LOTES: 'lotes',
+  SANIDAD: 'sanidad',
+  INCUBACIONES: 'incubaciones',
+  NOTIFICACIONES: 'notificaciones',
 };
 
 // ============= LOTES =============
 export const guardarLote = async (lote: Partial<Lote>): Promise<Lote> => {
   try {
-    const lotesExistentes = await obtenerLotes();
-    const nuevoLote: Lote = {
-      id: Date.now().toString(),
+    console.log('🔵 [FIREBASE] Iniciando guardado de lote...');
+    console.log('🔵 [FIREBASE] DB conectado?:', db ? 'Sí' : 'NO');
+    console.log('🔵 [FIREBASE] Datos recibidos:', JSON.stringify(lote, null, 2));
+    
+    if (!db) {
+      throw new Error('Firebase no está inicializado');
+    }
+    
+    const nuevoLote = {
       ...lote,
       cantidadActual: lote.cantidadNacidos || 0,
       fechaCreacion: new Date().toISOString(),
-    } as Lote;
-    lotesExistentes.push(nuevoLote);
-    await AsyncStorage.setItem(KEYS.LOTES, JSON.stringify(lotesExistentes));
-    return nuevoLote;
-  } catch (error) {
-    console.error('Error al guardar lote:', error);
+    };
+    
+    console.log('🔵 [FIREBASE] Datos a guardar:', JSON.stringify(nuevoLote, null, 2));
+    console.log('🔵 [FIREBASE] Intentando escribir en colección:', COLLECTIONS.LOTES);
+    
+    const docRef = await addDoc(collection(db, COLLECTIONS.LOTES), nuevoLote);
+    console.log('✅ [FIREBASE] Lote guardado exitosamente con ID:', docRef.id);
+    
+    // Backup automático
+    autoBackupIfEnabled().catch(err => console.warn('⚠️ Backup automático falló:', err));
+    
+    return { id: docRef.id, ...nuevoLote } as Lote;
+  } catch (error: any) {
+    console.error('❌ [FIREBASE] Error al guardar lote:', error);
+    console.error('❌ [FIREBASE] Tipo de error:', error?.constructor?.name);
+    console.error('❌ [FIREBASE] Mensaje:', error?.message);
+    console.error('❌ [FIREBASE] Código:', error?.code);
     throw error;
   }
 };
 
 export const obtenerLotes = async (): Promise<Lote[]> => {
   try {
-    const data = await AsyncStorage.getItem(KEYS.LOTES);
-    return data ? JSON.parse(data) : [];
+    console.log('🔵 [FIREBASE] Obteniendo lotes desde Firestore...');
+    console.log('🔵 [FIREBASE] DB conectado?:', db ? 'Sí' : 'NO');
+    
+    if (!db) {
+      console.error('❌ [FIREBASE] DB no está inicializado');
+      return [];
+    }
+    
+    const querySnapshot = await getDocs(collection(db, COLLECTIONS.LOTES));
+    const lotes: Lote[] = [];
+    querySnapshot.forEach((doc) => {
+      lotes.push({ id: doc.id, ...doc.data() } as Lote);
+    });
+    
+    // Si no hay lotes, intentar recuperar desde backup
+    if (lotes.length === 0) {
+      console.log('⚠️ [FIREBASE] No hay lotes en Firebase, intentando recuperar desde backup...');
+      const recuperado = await recuperarDesdeBackupSiNecesario();
+      
+      if (recuperado) {
+        // Volver a consultar después de la recuperación
+        const querySnapshotRecuperado = await getDocs(collection(db, COLLECTIONS.LOTES));
+        querySnapshotRecuperado.forEach((doc) => {
+          lotes.push({ id: doc.id, ...doc.data() } as Lote);
+        });
+        console.log('✅ [FIREBASE] Datos recuperados:', lotes.length, 'lotes');
+      }
+    } else {
+      console.log('✅ [FIREBASE] Lotes obtenidos:', lotes.length, 'lotes encontrados');
+      if (lotes.length > 0) {
+        console.log('✅ [FIREBASE] Primer lote:', JSON.stringify(lotes[0], null, 2));
+      }
+    }
+    
+    return lotes;
   } catch (error) {
-    console.error('Error al obtener lotes:', error);
+    console.error('❌ [FIREBASE] Error al obtener lotes:', error);
     return [];
   }
 }; 
 
 export const obtenerLotePorId = async (id: string): Promise<Lote | null> => {
   try {
-    const lotes = await obtenerLotes();
-    return lotes.find(lote => lote.id === id) || null;
+    const docRef = doc(db, COLLECTIONS.LOTES, id);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() } as Lote;
+    } else {
+      return null;
+    }
   } catch (error) {
     console.error('Error al obtener lote:', error);
     return null;
@@ -131,14 +200,17 @@ export const obtenerLotePorId = async (id: string): Promise<Lote | null> => {
 
 export const actualizarLote = async (id: string, datos: Partial<Lote>): Promise<Lote> => {
   try {
-    const lotes = await obtenerLotes();
-    const index = lotes.findIndex(lote => lote.id === id);
-    if (index !== -1) {
-      lotes[index] = { ...lotes[index], ...datos };
-      await AsyncStorage.setItem(KEYS.LOTES, JSON.stringify(lotes));
-      return lotes[index];
-    }
-    throw new Error('Lote no encontrado');
+    const docRef = doc(db, COLLECTIONS.LOTES, id);
+    await updateDoc(docRef, datos);
+    
+    // Retornar el lote actualizado
+    const loteActualizado = await obtenerLotePorId(id);
+    if (!loteActualizado) throw new Error('Error al recuperar lote actualizado');
+    
+    // Backup automático
+    autoBackupIfEnabled().catch(err => console.warn('⚠️ Backup automático falló:', err));
+    
+    return loteActualizado;
   } catch (error) {
     console.error('Error al actualizar lote:', error);
     throw error;
@@ -147,9 +219,10 @@ export const actualizarLote = async (id: string, datos: Partial<Lote>): Promise<
 
 export const eliminarLote = async (id: string): Promise<void> => {
   try {
-    const lotes = await obtenerLotes();
-    const lotesActualizados = lotes.filter(lote => lote.id !== id);
-    await AsyncStorage.setItem(KEYS.LOTES, JSON.stringify(lotesActualizados));
+    await deleteDoc(doc(db, COLLECTIONS.LOTES, id));
+    
+    // Backup automático
+    autoBackupIfEnabled().catch(err => console.warn('⚠️ Backup automático falló:', err));
   } catch (error) {
     console.error('Error al eliminar lote:', error);
     throw error;
@@ -170,12 +243,14 @@ export const registrarEvento = async (loteId: string, evento: Partial<EventoLote
     } as EventoLote;
 
     // Agregar evento al historial
-    if (!lote.historial) lote.historial = [];
-    lote.historial.push(nuevoEvento);
+    const historial = lote.historial || [];
+    historial.push(nuevoEvento);
+    
+    const updates: any = { historial };
 
     // Actualizar cantidad actual
     if (evento.tipo === 'muerte' || evento.tipo === 'sacrificio') {
-      lote.cantidadActual = (lote.cantidadActual || 0) - (evento.cantidad || 1);
+      updates.cantidadActual = (lote.cantidadActual || 0) - (evento.cantidad || 1);
       
       // Actualizar género si se especifica
       if (evento.genero === 'macho' && lote.cantidadMachos) {
@@ -183,17 +258,17 @@ export const registrarEvento = async (loteId: string, evento: Partial<EventoLote
         if (nuevaCantidad < 0) {
           throw new Error('No hay suficientes machos en el lote');
         }
-        lote.cantidadMachos = nuevaCantidad;
+        updates.cantidadMachos = nuevaCantidad;
       } else if (evento.genero === 'hembra' && lote.cantidadHembras) {
         const nuevaCantidad = lote.cantidadHembras - (evento.cantidad || 1);
         if (nuevaCantidad < 0) {
           throw new Error('No hay suficientes hembras en el lote');
         }
-        lote.cantidadHembras = nuevaCantidad;
+        updates.cantidadHembras = nuevaCantidad;
       }
     }
 
-    await actualizarLote(loteId, lote);
+    await actualizarLote(loteId, updates);
     return nuevoEvento;
   } catch (error) {
     console.error('Error al registrar evento:', error);
@@ -205,16 +280,14 @@ export const registrarEvento = async (loteId: string, evento: Partial<EventoLote
 
 export const registrarSanidad = async (loteId: string, registroSanidad: Partial<RegistroSanidad>): Promise<RegistroSanidad> => {
   try {
-    const sanidadExistente = await obtenerSanidad();
-    const nuevoRegistro: RegistroSanidad = {
-      id: Date.now().toString(),
+    const nuevoRegistro = {
       loteId,
       ...registroSanidad,
       fechaRegistro: new Date().toISOString(),
-    } as RegistroSanidad;
-    sanidadExistente.push(nuevoRegistro);
-    await AsyncStorage.setItem(KEYS.SANIDAD, JSON.stringify(sanidadExistente));
-    return nuevoRegistro;
+    };
+    
+    const docRef = await addDoc(collection(db, COLLECTIONS.SANIDAD), nuevoRegistro);
+    return { id: docRef.id, ...nuevoRegistro } as RegistroSanidad;
   } catch (error) {
     console.error('Error al registrar sanidad:', error);
     throw error;
@@ -223,9 +296,19 @@ export const registrarSanidad = async (loteId: string, registroSanidad: Partial<
 
 export const obtenerSanidad = async (loteId?: string): Promise<RegistroSanidad[]> => {
   try {
-    const data = await AsyncStorage.getItem(KEYS.SANIDAD);
-    const registros: RegistroSanidad[] = data ? JSON.parse(data) : [];
-    return loteId ? registros.filter(r => r.loteId === loteId) : registros;
+    let q;
+    if (loteId) {
+      q = query(collection(db, COLLECTIONS.SANIDAD), where("loteId", "==", loteId));
+    } else {
+      q = collection(db, COLLECTIONS.SANIDAD);
+    }
+    
+    const querySnapshot = await getDocs(q);
+    const registros: RegistroSanidad[] = [];
+    querySnapshot.forEach((doc) => {
+      registros.push({ id: doc.id, ...doc.data() } as RegistroSanidad);
+    });
+    return registros;
   } catch (error) {
     console.error('Error al obtener sanidad:', error);
     return [];
@@ -234,13 +317,8 @@ export const obtenerSanidad = async (loteId?: string): Promise<RegistroSanidad[]
 
 export const actualizarSanidad = async (registroId: string, datos: Partial<RegistroSanidad>): Promise<void> => {
   try {
-    const registros = await obtenerSanidad();
-    const index = registros.findIndex(r => r.id === registroId);
-    
-    if (index === -1) throw new Error('Registro no encontrado');
-    
-    registros[index] = { ...registros[index], ...datos };
-    await AsyncStorage.setItem(KEYS.SANIDAD, JSON.stringify(registros));
+    const docRef = doc(db, COLLECTIONS.SANIDAD, registroId);
+    await updateDoc(docRef, datos);
   } catch (error) {
     console.error('Error al actualizar sanidad:', error);
     throw error;
@@ -249,9 +327,7 @@ export const actualizarSanidad = async (registroId: string, datos: Partial<Regis
 
 export const eliminarSanidad = async (registroId: string): Promise<void> => {
   try {
-    const registros = await obtenerSanidad();
-    const nuevoRegistros = registros.filter(r => r.id !== registroId);
-    await AsyncStorage.setItem(KEYS.SANIDAD, JSON.stringify(nuevoRegistros));
+    await deleteDoc(doc(db, COLLECTIONS.SANIDAD, registroId));
   } catch (error) {
     console.error('Error al eliminar sanidad:', error);
     throw error;
@@ -260,8 +336,26 @@ export const eliminarSanidad = async (registroId: string): Promise<void> => {
 
 export const obtenerSanidadPorTipo = async (tipo: string, loteId?: string): Promise<RegistroSanidad[]> => {
   try {
-    const registros = await obtenerSanidad(loteId);
-    return registros.filter(r => r.tipo === tipo);
+    let q;
+    if (loteId) {
+      q = query(
+        collection(db, COLLECTIONS.SANIDAD), 
+        where("loteId", "==", loteId),
+        where("tipo", "==", tipo)
+      );
+    } else {
+      q = query(
+        collection(db, COLLECTIONS.SANIDAD), 
+        where("tipo", "==", tipo)
+      );
+    }
+    
+    const querySnapshot = await getDocs(q);
+    const registros: RegistroSanidad[] = [];
+    querySnapshot.forEach((doc) => {
+      registros.push({ id: doc.id, ...doc.data() } as RegistroSanidad);
+    });
+    return registros;
   } catch (error) {
     console.error('Error al filtrar sanidad:', error);
     return [];
@@ -272,8 +366,6 @@ export const obtenerSanidadPorTipo = async (tipo: string, loteId?: string): Prom
 
 export const registrarIncubacion = async (incubacion: Partial<Incubacion>): Promise<Incubacion> => {
   try {
-    const incubacionesExistentes = await obtenerIncubaciones();
-    
     const fechaInicio = new Date(incubacion.fechaInicio!);
     const fechaMojarHuevos = new Date(fechaInicio);
     fechaMojarHuevos.setDate(fechaMojarHuevos.getDate() + 15);
@@ -281,22 +373,21 @@ export const registrarIncubacion = async (incubacion: Partial<Incubacion>): Prom
     const fechaNacimiento = new Date(fechaInicio);
     fechaNacimiento.setDate(fechaNacimiento.getDate() + 21);
 
-    const nuevaIncubacion: Incubacion = {
-      id: Date.now().toString(),
+    const nuevaIncubacion = {
       ...incubacion,
       fechaMojarHuevos: fechaMojarHuevos.toISOString(),
       fechaEstimadaNacimiento: fechaNacimiento.toISOString(),
       estado: 'activa',
       fechaRegistro: new Date().toISOString(),
-    } as Incubacion;
+    };
 
-    incubacionesExistentes.push(nuevaIncubacion);
-    await AsyncStorage.setItem(KEYS.INCUBACIONES, JSON.stringify(incubacionesExistentes));
+    const docRef = await addDoc(collection(db, COLLECTIONS.INCUBACIONES), nuevaIncubacion);
+    const incubacionGuardada = { id: docRef.id, ...nuevaIncubacion } as Incubacion;
     
     // Crear notificaciones automáticas
-    await crearNotificacionesIncubacion(nuevaIncubacion);
+    await crearNotificacionesIncubacion(incubacionGuardada);
     
-    return nuevaIncubacion;
+    return incubacionGuardada;
   } catch (error) {
     console.error('Error al registrar incubación:', error);
     throw error;
@@ -305,8 +396,12 @@ export const registrarIncubacion = async (incubacion: Partial<Incubacion>): Prom
 
 export const obtenerIncubaciones = async (): Promise<Incubacion[]> => {
   try {
-    const data = await AsyncStorage.getItem(KEYS.INCUBACIONES);
-    return data ? JSON.parse(data) : [];
+    const querySnapshot = await getDocs(collection(db, COLLECTIONS.INCUBACIONES));
+    const incubaciones: Incubacion[] = [];
+    querySnapshot.forEach((doc) => {
+      incubaciones.push({ id: doc.id, ...doc.data() } as Incubacion);
+    });
+    return incubaciones;
   } catch (error) {
     console.error('Error al obtener incubaciones:', error);
     return [];
@@ -315,12 +410,12 @@ export const obtenerIncubaciones = async (): Promise<Incubacion[]> => {
 
 export const actualizarIncubacion = async (id: string, datos: Partial<Incubacion>): Promise<Incubacion> => {
   try {
-    const incubaciones = await obtenerIncubaciones();
-    const index = incubaciones.findIndex(inc => inc.id === id);
-    if (index !== -1) {
-      incubaciones[index] = { ...incubaciones[index], ...datos };
-      await AsyncStorage.setItem(KEYS.INCUBACIONES, JSON.stringify(incubaciones));
-      return incubaciones[index];
+    const docRef = doc(db, COLLECTIONS.INCUBACIONES, id);
+    await updateDoc(docRef, datos);
+    
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() } as Incubacion;
     }
     throw new Error('Incubación no encontrada');
   } catch (error) {
@@ -333,15 +428,12 @@ export const actualizarIncubacion = async (id: string, datos: Partial<Incubacion
 
 export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Promise<Notificacion[]> => {
   try {
-    const notificaciones = await obtenerNotificaciones();
-    
     const fechaMojar = new Date(incubacion.fechaMojarHuevos);
     const fechaNacimiento = new Date(incubacion.fechaEstimadaNacimiento);
     
-    const nuevasNotificaciones: Notificacion[] = [
+    const nuevasNotificaciones = [
       // Notificaciones para mojar huevos (día 15)
       {
-        id: `${incubacion.id}_mojar_3d`,
         tipo: 'incubacion',
         titulo: 'Próximo: Mojar huevos',
         mensaje: `En 3 días debes mojar los huevos (${incubacion.cantidadHuevos} huevos)`,
@@ -350,7 +442,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
         leida: false,
       },
       {
-        id: `${incubacion.id}_mojar_2d`,
         tipo: 'incubacion',
         titulo: 'Próximo: Mojar huevos',
         mensaje: `En 2 días debes mojar los huevos`,
@@ -359,7 +450,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
         leida: false,
       },
       {
-        id: `${incubacion.id}_mojar_1d`,
         tipo: 'incubacion',
         titulo: 'Mañana: Mojar huevos',
         mensaje: `Mañana debes mojar los huevos`,
@@ -368,7 +458,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
         leida: false,
       },
       {
-        id: `${incubacion.id}_mojar_hoy`,
         tipo: 'incubacion',
         titulo: '¡Hoy! Mojar huevos',
         mensaje: `Hoy es el día 15 - Debes mojar los huevos`,
@@ -378,7 +467,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
       },
       // Notificaciones para nacimiento (día 21)
       {
-        id: `${incubacion.id}_nacer_3d`,
         tipo: 'incubacion',
         titulo: 'Próximo nacimiento',
         mensaje: `En 3 días nacerán los pollitos`,
@@ -387,7 +475,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
         leida: false,
       },
       {
-        id: `${incubacion.id}_nacer_1d`,
         tipo: 'incubacion',
         titulo: 'Nacimiento mañana',
         mensaje: `Mañana nacerán los pollitos - Prepara todo lo necesario`,
@@ -396,7 +483,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
         leida: false,
       },
       {
-        id: `${incubacion.id}_nacer_hoy`,
         tipo: 'incubacion',
         titulo: '🐣 ¡Día de nacimiento!',
         mensaje: `Hoy es el día estimado de nacimiento`,
@@ -406,7 +492,6 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
       },
       // Notificación del día 23 para registrar pollos nacidos
       {
-        id: `${incubacion.id}_registrar_pollos`,
         tipo: 'registro_nacimiento',
         titulo: '📝 Registrar pollos nacidos',
         mensaje: `¿Cuántos pollos nacieron de esta incubación? Regístralos para crear un nuevo lote`,
@@ -416,10 +501,18 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
       },
     ];
     
-    notificaciones.push(...nuevasNotificaciones);
-    await AsyncStorage.setItem(KEYS.NOTIFICACIONES, JSON.stringify(notificaciones));
+    const batch = writeBatch(db);
+    const notificacionesGuardadas: Notificacion[] = [];
+
+    nuevasNotificaciones.forEach(notif => {
+      const docRef = doc(collection(db, COLLECTIONS.NOTIFICACIONES));
+      batch.set(docRef, notif);
+      notificacionesGuardadas.push({ id: docRef.id, ...notif } as Notificacion);
+    });
+
+    await batch.commit();
     
-    return nuevasNotificaciones;
+    return notificacionesGuardadas;
   } catch (error) {
     console.error('Error al crear notificaciones:', error);
     throw error;
@@ -428,8 +521,12 @@ export const crearNotificacionesIncubacion = async (incubacion: Incubacion): Pro
 
 export const obtenerNotificaciones = async (): Promise<Notificacion[]> => {
   try {
-    const data = await AsyncStorage.getItem(KEYS.NOTIFICACIONES);
-    return data ? JSON.parse(data) : [];
+    const querySnapshot = await getDocs(collection(db, COLLECTIONS.NOTIFICACIONES));
+    const notificaciones: Notificacion[] = [];
+    querySnapshot.forEach((doc) => {
+      notificaciones.push({ id: doc.id, ...doc.data() } as Notificacion);
+    });
+    return notificaciones;
   } catch (error) {
     console.error('Error al obtener notificaciones:', error);
     return [];
@@ -438,11 +535,18 @@ export const obtenerNotificaciones = async (): Promise<Notificacion[]> => {
 
 export const obtenerNotificacionesActivas = async (): Promise<Notificacion[]> => {
   try {
-    const notificaciones = await obtenerNotificaciones();
+    const q = query(collection(db, COLLECTIONS.NOTIFICACIONES), where("leida", "==", false));
+    const querySnapshot = await getDocs(q);
+    
+    const notificaciones: Notificacion[] = [];
+    querySnapshot.forEach((doc) => {
+      notificaciones.push({ id: doc.id, ...doc.data() } as Notificacion);
+    });
+
     const ahora = new Date();
     return notificaciones.filter(n => {
       const fechaNotif = new Date(n.fecha);
-      return !n.leida && fechaNotif <= ahora;
+      return fechaNotif <= ahora;
     }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   } catch (error) {
     console.error('Error al obtener notificaciones activas:', error);
@@ -452,12 +556,8 @@ export const obtenerNotificacionesActivas = async (): Promise<Notificacion[]> =>
 
 export const marcarNotificacionLeida = async (id: string): Promise<void> => {
   try {
-    const notificaciones = await obtenerNotificaciones();
-    const index = notificaciones.findIndex(n => n.id === id);
-    if (index !== -1) {
-      notificaciones[index].leida = true;
-      await AsyncStorage.setItem(KEYS.NOTIFICACIONES, JSON.stringify(notificaciones));
-    }
+    const docRef = doc(db, COLLECTIONS.NOTIFICACIONES, id);
+    await updateDoc(docRef, { leida: true });
   } catch (error) {
     console.error('Error al marcar notificación:', error);
     throw error;
@@ -468,7 +568,9 @@ export const marcarNotificacionLeida = async (id: string): Promise<void> => {
 
 export const limpiarDatos = async () => {
   try {
-    await AsyncStorage.multiRemove(Object.values(KEYS));
+    // Nota: En Firestore no es recomendable borrar colecciones enteras desde el cliente
+    // por temas de rendimiento y costos. Se recomienda hacerlo desde la consola o Cloud Functions.
+    console.warn('La limpieza de datos completa no está implementada para Firestore por seguridad.');
   } catch (error) {
     console.error('Error al limpiar datos:', error);
     throw error;
@@ -506,9 +608,7 @@ export const registrarPollosNacidos = async (
       cantidadNacidos: cantidadNacidos 
     } as any);
 
-    const notificaciones = await obtenerNotificaciones();
-    const notificacionConfirmacion: Notificacion = {
-      id: `${Date.now()}_lote_creado`,
+    const notificacionConfirmacion = {
       tipo: 'lote_creado',
       titulo: '✅ Lote creado exitosamente',
       mensaje: `Se ha creado el lote "${loteCreado.nombreLote}" con ${cantidadNacidos} pollos (${cantidadMachos} machos, ${cantidadHembras} hembras)`,
@@ -516,8 +616,8 @@ export const registrarPollosNacidos = async (
       incubacionId: incubacionId,
       leida: false,
     };
-    notificaciones.push(notificacionConfirmacion);
-    await AsyncStorage.setItem(KEYS.NOTIFICACIONES, JSON.stringify(notificaciones));
+    
+    await addDoc(collection(db, COLLECTIONS.NOTIFICACIONES), notificacionConfirmacion);
 
     return loteCreado;
   } catch (error) {
@@ -528,13 +628,18 @@ export const registrarPollosNacidos = async (
 
 export const eliminarIncubacion = async (id: string): Promise<void> => {
   try {
-    const incubaciones = await obtenerIncubaciones();
-    const incubacionesFiltradas = incubaciones.filter(inc => inc.id !== id);
-    await AsyncStorage.setItem(KEYS.INCUBACIONES, JSON.stringify(incubacionesFiltradas));
+    await deleteDoc(doc(db, COLLECTIONS.INCUBACIONES, id));
     
-    const notificaciones = await obtenerNotificaciones();
-    const notificacionesFiltradas = notificaciones.filter(n => n.incubacionId !== id);
-    await AsyncStorage.setItem(KEYS.NOTIFICACIONES, JSON.stringify(notificacionesFiltradas));
+    // Eliminar notificaciones asociadas
+    const q = query(collection(db, COLLECTIONS.NOTIFICACIONES), where("incubacionId", "==", id));
+    const querySnapshot = await getDocs(q);
+    
+    const batch = writeBatch(db);
+    querySnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
   } catch (error) {
     console.error('Error al eliminar incubación:', error);
     throw error;
@@ -558,5 +663,120 @@ export const exportarDatos = async () => {
   } catch (error) {
     console.error('Error al exportar datos:', error);
     throw error;
+  }
+};
+
+// ============= IMPORTAR DATOS DESDE BACKUP =============
+
+export const importarDatosDesdeBackup = async (datos: any): Promise<boolean> => {
+  try {
+    console.log('📥 [IMPORT] Iniciando importación de datos desde backup...');
+    
+    if (!datos) {
+      console.error('❌ [IMPORT] No hay datos para importar');
+      return false;
+    }
+
+    let importados = 0;
+
+    // Importar lotes
+    if (datos.lotes && Array.isArray(datos.lotes)) {
+      console.log('📦 [IMPORT] Importando', datos.lotes.length, 'lotes...');
+      for (const lote of datos.lotes) {
+        try {
+          const { id, ...loteData } = lote; // Remover el ID para crear uno nuevo
+          await addDoc(collection(db, COLLECTIONS.LOTES), loteData);
+          importados++;
+        } catch (error) {
+          console.error('❌ [IMPORT] Error al importar lote:', error);
+        }
+      }
+      console.log('✅ [IMPORT] Lotes importados:', importados);
+    }
+
+    // Importar registros de sanidad
+    if (datos.sanidad && Array.isArray(datos.sanidad)) {
+      console.log('🏥 [IMPORT] Importando', datos.sanidad.length, 'registros de sanidad...');
+      for (const registro of datos.sanidad) {
+        try {
+          const { id, ...registroData } = registro;
+          await addDoc(collection(db, COLLECTIONS.SANIDAD), registroData);
+        } catch (error) {
+          console.error('❌ [IMPORT] Error al importar sanidad:', error);
+        }
+      }
+    }
+
+    // Importar incubaciones
+    if (datos.incubaciones && Array.isArray(datos.incubaciones)) {
+      console.log('🥚 [IMPORT] Importando', datos.incubaciones.length, 'incubaciones...');
+      for (const incubacion of datos.incubaciones) {
+        try {
+          const { id, ...incubacionData } = incubacion;
+          await addDoc(collection(db, COLLECTIONS.INCUBACIONES), incubacionData);
+        } catch (error) {
+          console.error('❌ [IMPORT] Error al importar incubación:', error);
+        }
+      }
+    }
+
+    // Importar notificaciones
+    if (datos.notificaciones && Array.isArray(datos.notificaciones)) {
+      console.log('🔔 [IMPORT] Importando', datos.notificaciones.length, 'notificaciones...');
+      for (const notificacion of datos.notificaciones) {
+        try {
+          const { id, ...notificacionData } = notificacion;
+          await addDoc(collection(db, COLLECTIONS.NOTIFICACIONES), notificacionData);
+        } catch (error) {
+          console.error('❌ [IMPORT] Error al importar notificación:', error);
+        }
+      }
+    }
+
+    console.log('✅ [IMPORT] Importación completada exitosamente');
+    return true;
+  } catch (error) {
+    console.error('❌ [IMPORT] Error al importar datos:', error);
+    return false;
+  }
+};
+
+// Recuperar datos desde el backup más reciente si no hay datos en Firebase
+const recuperarDesdeBackupSiNecesario = async (): Promise<boolean> => {
+  try {
+    console.log('🔍 [RECOVERY] Verificando si es necesario recuperar desde backup...');
+    
+    // Verificar si ya hay datos en Firebase
+    const lotes = await getDocs(collection(db, COLLECTIONS.LOTES));
+    
+    if (!lotes.empty) {
+      console.log('ℹ️ [RECOVERY] Ya hay datos en Firebase, no es necesario recuperar');
+      return false;
+    }
+
+    console.log('⚠️ [RECOVERY] No hay datos en Firebase, buscando backup...');
+    
+    // Intentar obtener el backup más reciente
+    const { getMostRecentBackup } = await import('./googleDriveBackup');
+    const backupData = await getMostRecentBackup();
+    
+    if (!backupData) {
+      console.log('ℹ️ [RECOVERY] No se encontró ningún backup disponible');
+      return false;
+    }
+
+    console.log('📥 [RECOVERY] Backup encontrado, importando datos...');
+    const success = await importarDatosDesdeBackup(backupData);
+    
+    if (success) {
+      console.log('✅ [RECOVERY] Datos recuperados exitosamente desde backup');
+    } else {
+      console.log('❌ [RECOVERY] Error al recuperar datos desde backup');
+    }
+    
+    return success;
+  } catch (error) {
+    console.error('❌ [RECOVERY] Error en recuperación automática:', error);
+    return false;
   }
 };

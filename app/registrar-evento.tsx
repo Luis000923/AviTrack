@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  ScrollView, 
-  Alert 
-} from 'react-native';
-import { router } from 'expo-router';
-import { obtenerLotes, registrarEvento, Lote } from '@/services/storage';
+import { Lote, obtenerLotes, registrarEvento } from '@/services/storage';
 import { Picker } from '@react-native-picker/picker';
+import { router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
 interface RouteParams {
   params?: {
@@ -106,8 +108,17 @@ export default function RegistrarEventoScreen({ route }: { route?: RouteParams }
   const icon = tipo === 'muerte' ? '💀' : '🔪';
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={[styles.header, { backgroundColor: tipo === 'muerte' ? '#FF3B30' : '#FF9500' }]}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <ScrollView 
+        style={styles.scrollView}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.header, { backgroundColor: tipo === 'muerte' ? '#FF3B30' : '#FF9500' }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{icon} {titulo}</Text>
@@ -204,7 +215,8 @@ export default function RegistrarEventoScreen({ route }: { route?: RouteParams }
           <Text style={styles.saveButtonText}>Registrar</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -212,6 +224,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  scrollView: {
+    flex: 1,
   },
   header: {
     padding: 20,
